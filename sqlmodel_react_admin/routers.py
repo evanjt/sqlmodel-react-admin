@@ -16,7 +16,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from typing import Any
-from typing import AsyncGenerator
 from uuid import UUID
 import json
 import httpx
@@ -117,12 +116,6 @@ class ReactAdminRouter:
             description=f"Delete a {self.name_singular} by its id",
         )
 
-    async def get_session(
-        self,
-    ) -> AsyncGenerator[AsyncSession, None]:
-        async with self.async_session() as session:
-            yield session
-
     @property
     def exact_match_fields(
         self,
@@ -164,7 +157,7 @@ class ReactAdminRouter:
         request: Request,
     ) -> SQLModel:
 
-        async with self.get_session() as session:
+        async with self.async_session() as session:
             raw_body = await request.body()
             update_obj = self.update_model.model_validate(json.loads(raw_body))
             res = await session.exec(
@@ -196,7 +189,7 @@ class ReactAdminRouter:
         id: UUID,
     ) -> None:
 
-        async with self.get_session() as session:
+        async with self.async_session() as session:
             res = await session.exec(
                 select(self.db_model).where(self.db_model.id == id)
             )
@@ -211,7 +204,7 @@ class ReactAdminRouter:
         request: Request,
     ) -> SQLModel:
 
-        async with self.get_session() as session:
+        async with self.async_session() as session:
             raw_body = await request.body()
             create_obj = self.create_model.model_validate(json.loads(raw_body))
             db_obj = self.db_model.model_validate(create_obj)
@@ -228,7 +221,7 @@ class ReactAdminRouter:
         id: UUID,
     ) -> SQLModel:
 
-        async with self.get_session() as session:
+        async with self.async_session() as session:
             res = await session.exec(
                 select(self.db_model).where(self.db_model.id == id)
             )
@@ -244,7 +237,8 @@ class ReactAdminRouter:
         range: str = Query(None),
     ) -> SQLModel:
 
-        async with self.get_session() as session:
+        async with self.async_session() as session:
+            session = self.async_session()
             sort = json.loads(sort) if sort else []
             range = json.loads(range) if range else []
             filter = json.loads(filter) if filter else {}
