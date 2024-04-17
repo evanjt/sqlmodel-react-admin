@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "sqlmodel-react-admin"
+version = "0.0.1"
+description = "Create fast SQLModel/FastAPI APIs/BFFs for React Admin"
+authors = ["Evan Thomas <evan@evanjt.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sqlmodel = "^0.0.16"
+uvicorn = "^0.29.0"
+fastapi = "^0.110.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.1"
+pytest-watcher = "^0.4.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
