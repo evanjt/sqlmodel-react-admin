@@ -1,10 +1,25 @@
-from sqlmodel import SQLModel
-from fastapi import Depends, APIRouter, Query, Response, HTTPException, Request
-from sqlmodel import select
-from sqlmodel_react_admin.db import get_session, AsyncSession
-from uuid import UUID
+from sqlmodel import SQLModel, select
+from fastapi import (
+    Depends,
+    APIRouter,
+    Query,
+    Response,
+    HTTPException,
+    Request,
+    status,
+)
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func
+from sqlmodel_react_admin.client import get_async_client
+from sqlmodel.ext.asyncio.session import AsyncSession
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
+from typing import Any
+from typing import AsyncGenerator
+from uuid import UUID
 import json
+import httpx
 
 
 class ReactAdminRouter:
@@ -15,6 +30,7 @@ class ReactAdminRouter:
         read_model: SQLModel,
         update_model: SQLModel,
         name_singular: str,
+        db_engine: AsyncEngine,
         name_plural: str = None,
         prefix: str = None,
     ):
@@ -28,12 +44,16 @@ class ReactAdminRouter:
         )
         self.tags = [self.name_plural]
         self.machine_name = self.name_plural.lower().replace(" ", "_")
-
+        self.db_engine = db_engine
         # Models
         self.db_model = db_model
         self.read_model = read_model
         self.create_model = create_model
         self.update_model = update_model
+
+        self.async_session = sessionmaker(
+            db_engine, class_=AsyncSession, expire_on_commit=False
+        )
 
         # English stuff, "an" or "a" depending on first letter of singular name
         a_or_an = "an" if self.name_singular[0].lower() in "aeiou" else "a"
@@ -97,6 +117,12 @@ class ReactAdminRouter:
             description=f"Delete a {self.name_singular} by its id",
         )
 
+    async def get_session(
+        self,
+    ) -> AsyncGenerator[AsyncSession, None]:
+        async with self.async_session() as session:
+            yield session
+
     @property
     def exact_match_fields(
         self,
@@ -136,79 +162,79 @@ class ReactAdminRouter:
         self,
         id: UUID,
         request: Request,
-        session: AsyncSession = Depends(get_session),
     ) -> SQLModel:
 
-        raw_body = await request.body()
-        update_obj = self.update_model.model_validate(json.loads(raw_body))
-        res = await session.exec(
-            select(self.db_model).where(self.db_model.id == id)
-        )
-        db_obj = res.one()
-        update_fields = update_obj.model_dump(exclude_unset=True)
-
-        if not db_obj:
-            raise HTTPException(
-                status_code=404, detail=f"{self.name_singular} not found"
+        async with self.get_session() as session:
+            raw_body = await request.body()
+            update_obj = self.update_model.model_validate(json.loads(raw_body))
+            res = await session.exec(
+                select(self.db_model).where(self.db_model.id == id)
             )
+            db_obj = res.one()
+            update_fields = update_obj.model_dump(exclude_unset=True)
 
-        # Update the fields from the request
-        for field, value in update_fields.items():
-            # Only update fields that exist in the DB model
-            if hasattr(db_obj, field):
-                print(f"Updating: {field}, {value}")
-                setattr(db_obj, field, value)
+            if not db_obj:
+                raise HTTPException(
+                    status_code=404, detail=f"{self.name_singular} not found"
+                )
 
-        session.add(db_obj)
-        await session.commit()
-        await session.refresh(db_obj)
+            # Update the fields from the request
+            for field, value in update_fields.items():
+                # Only update fields that exist in the DB model
+                if hasattr(db_obj, field):
+                    print(f"Updating: {field}, {value}")
+                    setattr(db_obj, field, value)
 
-        return db_obj
+            session.add(db_obj)
+            await session.commit()
+            await session.refresh(db_obj)
+
+            return db_obj
 
     async def delete(
         self,
         id: UUID,
-        session: AsyncSession = Depends(get_session),
     ) -> None:
 
-        res = await session.exec(
-            select(self.db_model).where(self.db_model.id == id)
-        )
-        obj = res.one_or_none()
+        async with self.get_session() as session:
+            res = await session.exec(
+                select(self.db_model).where(self.db_model.id == id)
+            )
+            obj = res.one_or_none()
 
-        if obj:
-            await session.delete(obj)
-            await session.commit()
+            if obj:
+                await session.delete(obj)
+                await session.commit()
 
     async def create(
         self,
         request: Request,
-        session: AsyncSession = Depends(get_session),
     ) -> SQLModel:
 
-        raw_body = await request.body()
-        create_obj = self.create_model.model_validate(json.loads(raw_body))
-        db_obj = self.db_model.model_validate(create_obj)
+        async with self.get_session() as session:
+            raw_body = await request.body()
+            create_obj = self.create_model.model_validate(json.loads(raw_body))
+            db_obj = self.db_model.model_validate(create_obj)
 
-        session.add(db_obj)
-        await session.commit()
-        await session.refresh(db_obj)
+            session.add(db_obj)
+            await session.commit()
+            await session.refresh(db_obj)
 
-        return db_obj
+            return db_obj
 
     async def get_one(
         self,
-        session: AsyncSession = Depends(get_session),
         *,
         id: UUID,
     ) -> SQLModel:
 
-        res = await session.exec(
-            select(self.db_model).where(self.db_model.id == id)
-        )
-        obj = res.one_or_none()
+        async with self.get_session() as session:
+            res = await session.exec(
+                select(self.db_model).where(self.db_model.id == id)
+            )
+            obj = res.one_or_none()
 
-        return obj
+            return obj
 
     async def get_many(
         self,
@@ -216,82 +242,298 @@ class ReactAdminRouter:
         filter: str = Query(None),
         sort: str = Query(None),
         range: str = Query(None),
-        session: AsyncSession = Depends(get_session),
     ) -> SQLModel:
 
-        sort = json.loads(sort) if sort else []
-        range = json.loads(range) if range else []
-        filter = json.loads(filter) if filter else {}
+        async with self.get_session() as session:
+            sort = json.loads(sort) if sort else []
+            range = json.loads(range) if range else []
+            filter = json.loads(filter) if filter else {}
 
-        query = select(self.db_model)
+            query = select(self.db_model)
 
-        # Do a query to satisfy total count for "Content-Range" header
-        count_query = select(func.count(self.db_model.iterator))
-        if len(
-            filter
-        ):  # Have to filter twice for some reason? SQLModel state?
-            for field, value in filter.items():
-                for qry in [
-                    query,
-                    count_query,
-                ]:  # Apply filter to both queries
-                    if field in self.exact_match_fields:
-                        if isinstance(value, list):
-                            for v in value:
+            # Do a query to satisfy total count for "Content-Range" header
+            count_query = select(func.count(self.db_model.iterator))
+            if len(
+                filter
+            ):  # Have to filter twice for some reason? SQLModel state?
+                for field, value in filter.items():
+                    for qry in [
+                        query,
+                        count_query,
+                    ]:  # Apply filter to both queries
+                        if field in self.exact_match_fields:
+                            if isinstance(value, list):
+                                for v in value:
+                                    count_query = count_query.filter(
+                                        getattr(self.db_model, field) == v
+                                    )
+                            else:
                                 count_query = count_query.filter(
-                                    getattr(self.db_model, field) == v
+                                    getattr(self.db_model, field) == value
                                 )
                         else:
                             count_query = count_query.filter(
-                                getattr(self.db_model, field) == value
+                                getattr(self.db_model, field).like(
+                                    f"%{str(value)}%"
+                                )
                             )
+
+            # Execute total count query (including filter)
+            total_count_query = await session.exec(count_query)
+            total_count = total_count_query.one()
+
+            # Order by sort field params ie. ["name","ASC"]
+            if len(sort) == 2:
+                sort_field, sort_order = sort
+                if sort_order == "ASC":
+                    query = query.order_by(getattr(self.db_model, sort_field))
+                else:
+                    query = query.order_by(
+                        getattr(self.db_model, sort_field).desc()
+                    )
+
+            # Filter by filter field params ie. {"name":"bar"}
+            if len(filter):
+                for field, value in filter.items():
+                    if isinstance(value, list):
+                        query = query.where(
+                            getattr(self.db_model, field).in_(value)
+                        )
+                    elif field in self.exact_match_fields:
+                        query = query.where(
+                            getattr(self.db_model, field) == value
+                        )
                     else:
-                        count_query = count_query.filter(
-                            getattr(self.db_model, field).like(
-                                f"%{str(value)}%"
-                            )
+                        query = query.where(
+                            getattr(self.db_model, field).like(f"%{value}%")
                         )
 
-        # Execute total count query (including filter)
-        total_count_query = await session.exec(count_query)
-        total_count = total_count_query.one()
-
-        # Order by sort field params ie. ["name","ASC"]
-        if len(sort) == 2:
-            sort_field, sort_order = sort
-            if sort_order == "ASC":
-                query = query.order_by(getattr(self.db_model, sort_field))
+            if len(range) == 2:
+                start, end = range
+                query = query.offset(start).limit(end - start + 1)
             else:
-                query = query.order_by(
-                    getattr(self.db_model, sort_field).desc()
-                )
+                start, end = [0, total_count]  # For content-range header
 
-        # Filter by filter field params ie. {"name":"bar"}
-        if len(filter):
-            for field, value in filter.items():
-                if isinstance(value, list):
-                    query = query.where(
-                        getattr(self.db_model, field).in_(value)
-                    )
-                elif field in self.exact_match_fields:
-                    query = query.where(getattr(self.db_model, field) == value)
-                else:
-                    query = query.where(
-                        getattr(self.db_model, field).like(f"%{value}%")
-                    )
+            # Execute query
+            results = await session.exec(query)
+            obj = results.all()
 
-        if len(range) == 2:
-            start, end = range
-            query = query.offset(start).limit(end - start + 1)
-        else:
-            start, end = [0, total_count]  # For content-range header
+            response.headers["Content-Range"] = (
+                f"{self.name_plural} {start}-{end}/{total_count}"
+            )
 
-        # Execute query
-        results = await session.exec(query)
-        obj = results.all()
+            return obj
 
-        response.headers["Content-Range"] = (
-            f"{self.name_plural} {start}-{end}/{total_count}"
+
+class ReactAdminBFFRouter:
+    def __init__(
+        self,
+        name_singular: str,
+        name_plural: str = None,
+        prefix: str = None,
+        base_url: str = None,
+        version_prefix: str = None,  # Without /
+        dependencies: list = [],  # If any deps are req'd to run on the routes
+    ):
+        self.name_singular = name_singular
+        self.name_plural = name_plural or f"{name_singular}s"
+        self.router = APIRouter()
+        self.prefix = (
+            prefix
+            if prefix
+            else f"/{self.name_plural.replace(' ', '_').lower()}"
+        )
+        self.tags = [self.name_plural]
+        self.machine_name = self.name_plural.lower().replace(" ", "_")
+        self.base_url = (
+            f"{base_url}/{self.version_prefix}" if version_prefix else base_url
         )
 
-        return obj
+        self.dependencies = dependencies
+
+        # English stuff, "an" or "a" depending on first letter of singular name
+        a_or_an = "an" if self.name_singular[0].lower() in "aeiou" else "a"
+
+        # Routes
+        self.router.add_api_route(
+            "/{id}",
+            self.get_one,
+            methods=["GET"],
+            name=f"Get {a_or_an} {self.name_singular}",
+            description=f"Get a single {self.name_singular} by its id",
+            dependencies=self.dependencies,
+        )
+        self.router.add_api_route(
+            "",
+            self.get_many,
+            methods=["GET"],
+            name=f"Get {self.name_plural}",
+            description=f"Get multiple {self.name_plural}",
+            dependencies=self.dependencies,
+        )
+        self.router.add_api_route(
+            "",
+            self.create,
+            methods=["POST"],
+            name=f"Create {a_or_an} {self.name_singular}",
+            description=f"Create a new {self.name_singular}",
+            dependencies=self.dependencies,
+        )
+        self.router.add_api_route(
+            "/{id}",
+            self.update,
+            methods=["PUT"],
+            name=f"Update {a_or_an} {self.name_singular}",
+            description=f"Update a {self.name_singular} by its id",
+            dependencies=self.dependencies,
+        )
+        self.router.add_api_route(
+            "/{id}",
+            self.delete,
+            methods=["DELETE"],
+            name=f"Delete {a_or_an} {self.name_singular}",
+            description=f"Delete a {self.name_singular} by its id",
+            dependencies=self.dependencies,
+        )
+
+    async def update(
+        self,
+        id: UUID,
+        request: Request,
+        client: httpx.AsyncClient = Depends(get_async_client),
+    ) -> Any:
+
+        try:
+            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            req = client.build_request(
+                "PUT",
+                URL,
+                headers=request.headers.raw,
+                content=request.stream(),
+            )
+            r = await client.send(req, stream=True)
+            return StreamingResponse(
+                r.aiter_raw(),
+                status_code=r.status_code,
+                headers=r.headers,
+                background=BackgroundTask(r.aclose),
+            )
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=e.response.text,
+            )
+
+    async def delete(
+        self,
+        id: UUID,
+        request: Request,
+        client: httpx.AsyncClient = Depends(get_async_client),
+    ) -> None:
+        try:
+            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            req = client.build_request(
+                "DELETE",
+                URL,
+                headers=request.headers.raw,
+                content=request.stream(),
+            )
+            r = await client.send(req, stream=True)
+            return StreamingResponse(
+                r.aiter_raw(),
+                status_code=r.status_code,
+                headers=r.headers,
+                background=BackgroundTask(r.aclose),
+            )
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=e.response.text,
+            )
+
+    async def create(
+        self,
+        request: Request,
+        client: httpx.AsyncClient = Depends(get_async_client),
+    ) -> Any:
+
+        try:
+            URL = f"{self.base_url}/{self.name_plural}"
+            req = client.build_request(
+                "POST",
+                URL,
+                headers=request.headers.raw,
+                content=request.stream(),
+            )
+            r = await client.send(req, stream=True)
+            return StreamingResponse(
+                r.aiter_raw(),
+                status_code=r.status_code,
+                headers=r.headers,
+                background=BackgroundTask(r.aclose),
+            )
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=e.response.text,
+            )
+
+    async def get_one(
+        self,
+        id: UUID,
+        request: Request,
+        client: httpx.AsyncClient = Depends(get_async_client),
+    ) -> Any:
+
+        try:
+            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            req = client.build_request(
+                "GET",
+                URL,
+                headers=request.headers.raw,
+                content=request.stream(),
+            )
+            r = await client.send(req, stream=True)
+            return StreamingResponse(
+                r.aiter_raw(),
+                status_code=r.status_code,
+                headers=r.headers,
+                background=BackgroundTask(r.aclose),
+            )
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=e.response.text,
+            )
+
+    async def get_many(
+        self,
+        request: Request,
+        client: httpx.AsyncClient = Depends(get_async_client),
+    ) -> Any:
+
+        try:
+            URL = f"{self.base_url}/{self.name_plural}"
+            req = client.build_request(
+                "GET",
+                URL,
+                headers=request.headers.raw,
+                content=request.stream(),
+            )
+            r = await client.send(req, stream=True)
+            return StreamingResponse(
+                r.aiter_raw(),
+                status_code=r.status_code,
+                headers=r.headers,
+                background=BackgroundTask(r.aclose),
+            )
+
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=e.response.text,
+            )
