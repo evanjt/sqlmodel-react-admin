@@ -398,7 +398,7 @@ class ReactAdminBFFRouter:
     ) -> Any:
 
         try:
-            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
                 "PUT",
                 URL,
@@ -426,7 +426,7 @@ class ReactAdminBFFRouter:
         client: httpx.AsyncClient = Depends(get_async_client),
     ) -> None:
         try:
-            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
                 "DELETE",
                 URL,
@@ -454,7 +454,7 @@ class ReactAdminBFFRouter:
     ) -> Any:
 
         try:
-            URL = f"{self.base_url}/{self.name_plural}"
+            URL = f"{self.base_url}/{self.machine_name}"
             req = client.build_request(
                 "POST",
                 URL,
@@ -483,7 +483,7 @@ class ReactAdminBFFRouter:
     ) -> Any:
 
         try:
-            URL = f"{self.base_url}/{self.name_plural}/{id}"
+            URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
                 "GET",
                 URL,
@@ -511,7 +511,7 @@ class ReactAdminBFFRouter:
     ) -> Any:
 
         try:
-            URL = f"{self.base_url}/{self.name_plural}"
+            URL = f"{self.base_url}/{self.machine_name}"
             req = client.build_request(
                 "GET",
                 URL,

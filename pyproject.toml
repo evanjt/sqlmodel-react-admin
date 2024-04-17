@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "sqlmodel-react-admin"
-version = "0.0.4"
+version = "0.0.5"
 description = "Create fast SQLModel/FastAPI APIs/BFFs for React Admin"
 authors = ["Evan Thomas <evan@evanjt.com>"]
 license = "MIT"
