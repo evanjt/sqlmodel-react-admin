@@ -148,11 +148,30 @@ class ReactAdminRouter:
                     uuid_properties.append(prop_name)
         return uuid_properties
 
+    def get_nested_model_field_names(
+        self,
+        schema: dict,
+    ) -> list[str]:
+        """Returns a list of field names that are nested models"""
+
+        nested_model_field_names = []
+        if "$defs" in schema:
+            for field_name, properties in schema.get("properties", {}).items():
+                if "items" in properties:
+                    ref = properties["items"].get("$ref")
+                    if ref and "#/$defs/" in ref:
+                        nested_model_field_names.append(field_name)
+        return nested_model_field_names
+
     async def update(
         self,
         id: UUID,
         request: Request,
     ) -> SQLModel:
+
+        nested_field_names = self.get_nested_model_field_names(
+            self.update_model.schema()
+        )
 
         async with self.async_session() as session:
             raw_body = await request.body()
@@ -161,19 +180,13 @@ class ReactAdminRouter:
                 select(self.db_model).where(self.db_model.id == id)
             )
             db_obj = res.one()
-            update_fields = update_obj.model_dump(exclude_unset=True)
-
             if not db_obj:
                 raise HTTPException(
                     status_code=404, detail=f"{self.name_singular} not found"
                 )
 
-            # Update the fields from the request
-            for field, value in update_fields.items():
-                # Only update fields that exist in the DB model
-                if hasattr(db_obj, field):
-                    print(f"Updating: {field}, {value}")
-                    setattr(db_obj, field, value)
+            update_fields = update_obj.model_dump(exclude_unset=True)
+            db_obj.sqlmodel_update(update_fields)
 
             session.add(db_obj)
             await session.commit()
