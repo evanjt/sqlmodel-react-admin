@@ -399,9 +399,8 @@ class ReactAdminBFFRouter:
         self,
         id: UUID,
         request: Request,
-        client: httpx.AsyncClient = Depends(get_async_client),
     ) -> Any:
-
+        client = request.state.client
         try:
             URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
@@ -428,8 +427,8 @@ class ReactAdminBFFRouter:
         self,
         id: UUID,
         request: Request,
-        client: httpx.AsyncClient = Depends(get_async_client),
     ) -> None:
+        client = request.state.client
         try:
             URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
@@ -455,9 +454,8 @@ class ReactAdminBFFRouter:
     async def create(
         self,
         request: Request,
-        client: httpx.AsyncClient = Depends(get_async_client),
     ) -> Any:
-
+        client = request.state.client
         try:
             URL = f"{self.base_url}/{self.machine_name}"
             req = client.build_request(
@@ -484,9 +482,8 @@ class ReactAdminBFFRouter:
         self,
         id: UUID,
         request: Request,
-        client: httpx.AsyncClient = Depends(get_async_client),
     ) -> Any:
-
+        client = request.state.client
         try:
             URL = f"{self.base_url}/{self.machine_name}/{id}"
             req = client.build_request(
@@ -512,12 +509,11 @@ class ReactAdminBFFRouter:
     async def get_many(
         self,
         request: Request,
-        client: httpx.AsyncClient = Depends(get_async_client),
         filter: str = Query(None),
         sort: str = Query(None),
         range: str = Query(None),
     ) -> Any:
-
+        client = request.state.client
         try:
             URL = f"{self.base_url}/{self.machine_name}"
             req = client.build_request(
