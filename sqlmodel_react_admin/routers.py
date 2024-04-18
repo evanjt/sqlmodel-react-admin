@@ -179,7 +179,7 @@ class ReactAdminRouter:
             await session.commit()
             await session.refresh(db_obj)
 
-            return db_obj
+        return db_obj
 
     async def delete(
         self,
@@ -196,6 +196,8 @@ class ReactAdminRouter:
                 await session.delete(obj)
                 await session.commit()
 
+        return
+
     async def create(
         self,
         request: Request,
@@ -210,7 +212,7 @@ class ReactAdminRouter:
             await session.commit()
             await session.refresh(db_obj)
 
-            return db_obj
+        return db_obj
 
     async def get_one(
         self,
@@ -224,7 +226,7 @@ class ReactAdminRouter:
             )
             obj = res.one_or_none()
 
-            return obj
+        return obj
 
     async def get_many(
         self,
@@ -318,7 +320,7 @@ class ReactAdminRouter:
                 f"{self.name_plural} {start}-{end}/{total_count}"
             )
 
-            return obj
+        return obj
 
 
 class ReactAdminBFFRouter:
