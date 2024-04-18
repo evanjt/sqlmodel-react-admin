@@ -29,7 +29,7 @@ class ReactAdminRouter:
         read_model: SQLModel,
         update_model: SQLModel,
         name_singular: str,
-        db_engine: AsyncEngine,
+        db_sessionmaker: sessionmaker,
         name_plural: str = None,
         prefix: str = None,
     ):
@@ -43,16 +43,13 @@ class ReactAdminRouter:
         )
         self.tags = [self.name_plural]
         self.machine_name = self.name_plural.lower().replace(" ", "_")
-        self.db_engine = db_engine
+
         # Models
         self.db_model = db_model
         self.read_model = read_model
         self.create_model = create_model
         self.update_model = update_model
-
-        self.async_session = sessionmaker(
-            db_engine, class_=AsyncSession, expire_on_commit=False
-        )
+        self.async_session = db_sessionmaker
 
         # English stuff, "an" or "a" depending on first letter of singular name
         a_or_an = "an" if self.name_singular[0].lower() in "aeiou" else "a"
