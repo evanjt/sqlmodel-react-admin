@@ -514,15 +514,13 @@ class ReactAdminBFFRouter:
     ) -> Any:
 
         try:
-            URL = (
-                f"{self.base_url}/{self.machine_name}"
-                f"?filter={filter}&sort={sort}&range={range}"
-            )
+            URL = f"{self.base_url}/{self.machine_name}"
             req = client.build_request(
                 "GET",
                 URL,
                 headers=request.headers.raw,
                 content=request.stream(),
+                params={"sort": sort, "range": range, "filter": filter},
             )
             r = await client.send(req, stream=True)
             return StreamingResponse(
