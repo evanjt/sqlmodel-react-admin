@@ -266,11 +266,16 @@ class ReactAdminRouter:
                                     getattr(self.db_model, field) == value
                                 )
                         else:
-                            count_query = count_query.filter(
-                                getattr(self.db_model, field).like(
-                                    f"%{str(value)}%"
+                            if field in self.exact_match_fields:
+                                count_query = count_query.filter(
+                                    getattr(self.db_model, field) == value
                                 )
-                            )
+                            else:
+                                count_query = count_query.filter(
+                                    getattr(self.db_model, field).like(
+                                        f"%{str(value)}%"
+                                    )
+                                )
 
             # Execute total count query (including filter)
             total_count_query = await session.exec(count_query)
