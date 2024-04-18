@@ -143,12 +143,12 @@ class ReactAdminRouter:
                     and prop_details["format"] == "uuid"
                 ):
                     uuid_properties.append(prop_name)
-            elif (
-                prop_type == "string"
-                and "format" in prop_details
-                and prop_details["format"] == "uuid"
-            ):
-                uuid_properties.append(prop_name)
+            elif prop_type in ["string", "null"]:  # Allow case when optional
+                if (
+                    "format" in prop_details
+                    and prop_details["format"] == "uuid"
+                ):
+                    uuid_properties.append(prop_name)
         return uuid_properties
 
     async def update(
