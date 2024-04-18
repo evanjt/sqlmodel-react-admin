@@ -508,10 +508,16 @@ class ReactAdminBFFRouter:
         self,
         request: Request,
         client: httpx.AsyncClient = Depends(get_async_client),
+        filter: str = Query(None),
+        sort: str = Query(None),
+        range: str = Query(None),
     ) -> Any:
 
         try:
-            URL = f"{self.base_url}/{self.machine_name}"
+            URL = (
+                f"{self.base_url}/{self.machine_name}"
+                f"?filter={filter}&sort={sort}&range={range}"
+            )
             req = client.build_request(
                 "GET",
                 URL,
