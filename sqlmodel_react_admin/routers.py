@@ -248,69 +248,55 @@ class ReactAdminRouter:
         nested_field_names = self.get_nested_model_field_names(
             self.read_model.model_json_schema()
         )
+
+        print("NESTED FIELD NAMES", nested_field_names)
         async with self.async_session() as session:
             session = self.async_session()
             sort = json.loads(sort) if sort else []
             range = json.loads(range) if range else []
             filter = json.loads(filter) if filter else {}
 
-            query = select(self.db_model)
-
             # Do a query to satisfy total count for "Content-Range" header
             count_query = select(func.count(self.db_model.iterator))
-            if len(
-                filter
-            ):  # Have to filter twice for some reason? SQLModel state?
+            if len(filter):  # Have to filter twice? SQLModel state?
                 for field, value in filter.items():
-                    for qry in [
-                        query,
-                        count_query,
-                    ]:  # Apply filter to both queries
-                        if field in self.exact_match_fields:
-                            if isinstance(value, list):
-                                for v in value:
-                                    qry = qry.filter(
-                                        getattr(self.db_model, field) == v
-                                    )
-                            else:
-                                qry = qry.filter(
-                                    getattr(self.db_model, field) == value
-                                )
-                        elif field in nested_field_names:
-                            # If field is nested, it's a true/false only qry
-                            if value:
-                                qry = qry.filter(
-                                    getattr(self.db_model, field).has()
-                                )
-                            else:
-                                qry = qry.filter(
-                                    not_(getattr(self.db_model, field).has())
+                    if field in self.exact_match_fields:
+                        if isinstance(value, list):
+                            for v in value:
+                                count_query = count_query.filter(
+                                    getattr(self.db_model, field) == v
                                 )
                         else:
-                            if field in self.exact_match_fields:
-                                qry = qry.filter(
-                                    getattr(self.db_model, field) == value
+                            count_query = count_query.filter(
+                                getattr(self.db_model, field) == value
+                            )
+                    elif field in nested_field_names:
+                        # If field is nested, it's a true/false only qry
+                        if value:
+                            count_query = count_query.filter(
+                                getattr(self.db_model, field).has()
+                            )
+                        else:
+                            count_query = count_query.filter(
+                                not_(getattr(self.db_model, field).has())
+                            )
+                    else:
+                        if field in self.exact_match_fields:
+                            count_query = count_query.filter(
+                                getattr(self.db_model, field) == value
+                            )
+                        else:
+                            count_query = count_query.filter(
+                                getattr(self.db_model, field).like(
+                                    f"%{str(value)}%"
                                 )
-                            else:
-                                qry = qry.filter(
-                                    getattr(self.db_model, field).like(
-                                        f"%{str(value)}%"
-                                    )
-                                )
+                            )
 
             # Execute total count query (including filter)
             total_count_query = await session.exec(count_query)
             total_count = total_count_query.one()
 
-            # Order by sort field params ie. ["name","ASC"]
-            if len(sort) == 2:
-                sort_field, sort_order = sort
-                if sort_order == "ASC":
-                    query = query.order_by(getattr(self.db_model, sort_field))
-                else:
-                    query = query.order_by(
-                        getattr(self.db_model, sort_field).desc()
-                    )
+            query = select(self.db_model)
 
             # Filter by filter field params ie. {"name":"bar"}
             if len(filter):
@@ -323,6 +309,16 @@ class ReactAdminRouter:
                         query = query.where(
                             getattr(self.db_model, field) == value
                         )
+                    elif field in nested_field_names:
+                        # If field is nested, it's a true/false only qry
+                        if value:
+                            query = query.filter(
+                                getattr(self.db_model, field).has()
+                            )
+                        else:
+                            query = query.filter(
+                                not_(getattr(self.db_model, field).has())
+                            )
                     else:
                         query = query.where(
                             getattr(self.db_model, field).like(f"%{value}%")
