@@ -245,11 +245,6 @@ class ReactAdminRouter:
         range: str = Query(None),
     ) -> SQLModel:
 
-        nested_field_names = self.get_nested_model_field_names(
-            self.read_model.model_json_schema()
-        )
-
-        print("NESTED FIELD NAMES", nested_field_names)
         async with self.async_session() as session:
             session = self.async_session()
             sort = json.loads(sort) if sort else []
@@ -269,16 +264,6 @@ class ReactAdminRouter:
                         else:
                             count_query = count_query.filter(
                                 getattr(self.db_model, field) == value
-                            )
-                    elif field in nested_field_names:
-                        # If field is nested, it's a true/false only qry
-                        if value:
-                            count_query = count_query.filter(
-                                getattr(self.db_model, field).has()
-                            )
-                        else:
-                            count_query = count_query.filter(
-                                not_(getattr(self.db_model, field).has())
                             )
                     else:
                         if field in self.exact_match_fields:
@@ -309,20 +294,24 @@ class ReactAdminRouter:
                         query = query.where(
                             getattr(self.db_model, field) == value
                         )
-                    elif field in nested_field_names:
-                        # If field is nested, it's a true/false only qry
-                        if value:
-                            query = query.filter(
-                                getattr(self.db_model, field).has()
-                            )
-                        else:
-                            query = query.filter(
-                                not_(getattr(self.db_model, field).has())
-                            )
                     else:
-                        query = query.where(
-                            getattr(self.db_model, field).like(f"%{value}%")
-                        )
+                        # If filter query is a string, use a likeness query
+                        # but if a boolean, perform a query on a valid object
+                        if isinstance(value, bool):
+                            if value:
+                                query = query.where(
+                                    getattr(self.db_model, field)
+                                )
+                            else:
+                                query = query.where(
+                                    not_(getattr(self.db_model, field))
+                                )
+                        else:
+                            query = query.where(
+                                getattr(self.db_model, field).like(
+                                    f"%{str(value)}%"
+                                )
+                            )
 
             if len(range) == 2:
                 start, end = range
