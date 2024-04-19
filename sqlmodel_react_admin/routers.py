@@ -10,7 +10,7 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import func
+from sqlalchemy import func, not_
 from sqlmodel_react_admin.client import get_async_client
 from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi.responses import StreamingResponse
@@ -169,10 +169,6 @@ class ReactAdminRouter:
         request: Request,
     ) -> SQLModel:
 
-        nested_field_names = self.get_nested_model_field_names(
-            self.update_model.schema()
-        )
-
         async with self.async_session() as session:
             raw_body = await request.body()
             update_obj = self.update_model.model_validate(json.loads(raw_body))
@@ -249,6 +245,9 @@ class ReactAdminRouter:
         range: str = Query(None),
     ) -> SQLModel:
 
+        nested_field_names = self.get_nested_model_field_names(
+            self.read_model.model_json_schema()
+        )
         async with self.async_session() as session:
             session = self.async_session()
             sort = json.loads(sort) if sort else []
@@ -270,20 +269,30 @@ class ReactAdminRouter:
                         if field in self.exact_match_fields:
                             if isinstance(value, list):
                                 for v in value:
-                                    count_query = count_query.filter(
+                                    qry = qry.filter(
                                         getattr(self.db_model, field) == v
                                     )
                             else:
-                                count_query = count_query.filter(
+                                qry = qry.filter(
                                     getattr(self.db_model, field) == value
+                                )
+                        elif field in nested_field_names:
+                            # If field is nested, it's a true/false only qry
+                            if value:
+                                qry = qry.filter(
+                                    getattr(self.db_model, field).has()
+                                )
+                            else:
+                                qry = qry.filter(
+                                    not_(getattr(self.db_model, field).has())
                                 )
                         else:
                             if field in self.exact_match_fields:
-                                count_query = count_query.filter(
+                                qry = qry.filter(
                                     getattr(self.db_model, field) == value
                                 )
                             else:
-                                count_query = count_query.filter(
+                                qry = qry.filter(
                                     getattr(self.db_model, field).like(
                                         f"%{str(value)}%"
                                     )
