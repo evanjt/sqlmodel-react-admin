@@ -286,6 +286,7 @@ class ReactAdminRouter:
             # Filter by filter field params ie. {"name":"bar"}
             if len(filter):
                 for field, value in filter.items():
+                    print("Filtering by:", field, value)
                     if isinstance(value, list):
                         query = query.where(
                             getattr(self.db_model, field).in_(value)
