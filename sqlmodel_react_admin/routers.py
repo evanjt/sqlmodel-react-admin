@@ -255,7 +255,19 @@ class ReactAdminRouter:
             count_query = select(func.count(self.db_model.iterator))
             if len(filter):  # Have to filter twice? SQLModel state?
                 for field, value in filter.items():
-                    if field in self.exact_match_fields:
+                    print("Filtering by (count query):", field, value)
+                    # If filter query is a string, use a likeness query
+                    # but if a boolean, perform a query on a valid object
+                    if isinstance(value, bool):
+                        if value:
+                            count_query = count_query.where(
+                                getattr(self.db_model, field)
+                            )
+                        else:
+                            count_query = count_query.where(
+                                not_(getattr(self.db_model, field))
+                            )
+                    elif field in self.exact_match_fields:
                         if isinstance(value, list):
                             for v in value:
                                 count_query = count_query.filter(
