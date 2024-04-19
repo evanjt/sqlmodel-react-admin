@@ -253,37 +253,29 @@ class ReactAdminRouter:
 
             # Do a query to satisfy total count for "Content-Range" header
             count_query = select(func.count(self.db_model.iterator))
-            if len(filter):  # Have to filter twice? SQLModel state?
+            if len(filter):
                 for field, value in filter.items():
                     print("Filtering by (count query):", field, value)
-                    # If filter query is a string, use a likeness query
-                    # but if a boolean, perform a query on a valid object
-                    if isinstance(value, bool):
-                        if value:
-                            count_query = count_query.where(
-                                getattr(self.db_model, field)
-                            )
-                        else:
-                            count_query = count_query.where(
-                                not_(getattr(self.db_model, field))
-                            )
+                    if isinstance(value, list):
+                        count_query = count_query.where(
+                            getattr(self.db_model, field).in_(value)
+                        )
                     elif field in self.exact_match_fields:
-                        if isinstance(value, list):
-                            for v in value:
-                                count_query = count_query.filter(
-                                    getattr(self.db_model, field) == v
+                        count_query = count_query.where(
+                            getattr(self.db_model, field) == value
+                        )
+                    else:
+                        if isinstance(value, bool):
+                            if value:
+                                count_query = count_query.where(
+                                    getattr(self.db_model, field)
+                                )
+                            else:
+                                count_query = count_query.where(
+                                    not_(getattr(self.db_model, field))
                                 )
                         else:
-                            count_query = count_query.filter(
-                                getattr(self.db_model, field) == value
-                            )
-                    else:
-                        if field in self.exact_match_fields:
-                            count_query = count_query.filter(
-                                getattr(self.db_model, field) == value
-                            )
-                        else:
-                            count_query = count_query.filter(
+                            count_query = count_query.where(
                                 getattr(self.db_model, field).like(
                                     f"%{str(value)}%"
                                 )
@@ -295,7 +287,7 @@ class ReactAdminRouter:
 
             query = select(self.db_model)
 
-            # Filter by filter field params ie. {"name":"bar"}
+            # Apply filters to both count query and main query
             if len(filter):
                 for field, value in filter.items():
                     print("Filtering by:", field, value)
